@@ -277,6 +277,11 @@ export default {
     }
 
     try {
+      // Friendly health/info root so uptime checks and curious visitors get a
+      // 200 instead of a bare 404. Reveals nothing sensitive.
+      if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/health')) {
+        return json({ service: 'page-repair-proxy', status: 'ok' });
+      }
       if (request.method === 'POST' && url.pathname === '/v1/label') {
         return await handleLabel(request, env, ctx);
       }

@@ -1,0 +1,17 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- App tile -->
+  <rect x="0" y="0" width="128" height="128" rx="26" fill="#1a5fb4"/>
+  <!-- Page -->
+  <path d="M34 24 h40 l20 20 v60 a4 4 0 0 1 -4 4 H34 a4 4 0 0 1 -4 -4 V28 a4 4 0 0 1 4 -4 z"
+        fill="#ffffff"/>
+  <!-- Folded corner -->
+  <path d="M74 24 l20 20 h-16 a4 4 0 0 1 -4 -4 z" fill="#c9d9ee"/>
+  <!-- Text lines (the content being repaired) -->
+  <rect x="42" y="52" width="34" height="6" rx="3" fill="#9db8db"/>
+  <rect x="42" y="66" width="44" height="6" rx="3" fill="#9db8db"/>
+  <!-- Repair badge: white ring + green disc + white plus (fill-only for reliable raster) -->
+  <circle cx="88" cy="88" r="24" fill="#ffffff"/>
+  <circle cx="88" cy="88" r="20" fill="#2ec27e"/>
+  <rect x="76" y="84.5" width="24" height="7" rx="3" fill="#ffffff"/>
+  <rect x="84.5" y="76" width="7" height="24" rx="3" fill="#ffffff"/>
+</svg>
