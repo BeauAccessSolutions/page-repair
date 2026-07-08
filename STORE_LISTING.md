@@ -48,7 +48,7 @@ What makes it different from an accessibility "overlay":
 • Never speaks uninvited and never moves your focus. One polite announcement
   tells you the result, only right after you invoked the repair.
 
-Labeling requires either your own Anthropic API key or a subscription credit
+Labeling requires either your own Anthropic API key or a prepaid credit
 token — you choose in the options page. See the privacy policy for exactly what
 data is sent and when.
 
@@ -66,11 +66,11 @@ heading structure, and adding missing landmarks.
   asked.
 - **scripting** — Injects the audit-and-repair scripts into the current page
   when the user invokes a repair.
-- **storage** — Saves the user's own settings locally (API key or subscription
-  token, model choice, optional proxy URL). Never synced by us.
+- **storage** — Saves the user's own settings locally (API key or prepaid
+  credit token, model choice, optional proxy URL). Never synced by us.
 - **Host permission `https://api.anthropic.com/*`** — In bring-your-own-key
   mode, the extension calls the Anthropic API directly to label controls.
-- **Host permission `https://*.workers.dev/*`** — In subscription mode, the
+- **Host permission `https://*.workers.dev/*`** — In prepaid-credit mode, the
   extension calls the Page Repair proxy, which meters credits and forwards the
   request to Anthropic.
 

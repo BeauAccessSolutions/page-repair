@@ -24,7 +24,7 @@ https://github.com/Beaudoin0zach/page-repair.
 The extension keeps a small amount of configuration in `chrome.storage.local`
 (local to your browser, never synced by us):
 
-- Your personal Anthropic API key, **or** your subscription credit token —
+- Your personal Anthropic API key, **or** your prepaid credit token —
   whichever labeling mode you choose.
 - Your model preference and (optionally) a custom proxy URL.
 
@@ -51,7 +51,7 @@ your browsing history, or anything from other tabs.
    (`api.anthropic.com`). It never touches our servers. That request is
    governed by your own agreement with Anthropic.
 
-2. **Subscription (credit token).** If you use a subscription token instead,
+2. **Prepaid credits (credit token).** If you use a credit token instead,
    the request goes to our proxy (`*.workers.dev`), which forwards it to
    Anthropic using a server-held key and deducts one credit. The proxy:
    - stores only a **SHA-256 hash** of your token plus a remaining-credit

@@ -76,7 +76,7 @@ async function labelControls({ issues, pageTitle, pageUrl }) {
   // Two modes, personal key wins if both are configured:
   //   1. Bring-your-own-key — calls Anthropic directly, traffic never
   //      touches our servers.
-  //   2. Subscription — routes through the page-repair proxy, which holds
+  //   2. Prepaid credits — routes through the page-repair proxy, which holds
   //      the real API key and meters usage.
   if (!apiKey && proxyToken) {
     return labelViaProxy({
@@ -90,7 +90,7 @@ async function labelControls({ issues, pageTitle, pageUrl }) {
   if (!apiKey) {
     return {
       error:
-        'Not configured. Add a personal API key or a subscription token in the extension options.',
+        'Not configured. Add a personal API key or a prepaid credit token in the extension options.',
     };
   }
 

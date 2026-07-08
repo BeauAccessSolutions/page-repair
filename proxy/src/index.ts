@@ -12,15 +12,20 @@
  * Endpoints:
  *   POST /v1/label        — label unnamed controls (Bearer customer token);
  *                           spends 1 credit
+ *   GET  /v1/bundles      — public catalog of purchasable credit bundles
+ *   GET  /v1/checkout     — one-time hand-off of a token minted by Stripe
+ *                           (?session_id=...), for the checkout success page
  *   POST /admin/tokens    — mint a customer token with a starting balance
  *                           (Bearer ADMIN_SECRET)
  *   POST /admin/credits   — top up an existing token (Bearer ADMIN_SECRET)
- *   POST /webhooks/stripe — stub; will credit balances on one-time
- *                           payments once Stripe is wired up
+ *   POST /webhooks/stripe — credit balances on one-time payments (mint or
+ *                           top-up); 501 until STRIPE_WEBHOOK_SECRET is set
  *
  * Storage (KV):
  *   token:<sha256(token)>   -> TokenRecord JSON
  *   credits:<sha256(token)> -> remaining credit balance (stringified int)
+ *   stripe_event:<id>       -> idempotency marker (24h TTL)
+ *   checkout:<session id>   -> {token, credits} minted at checkout (1h TTL)
  */
 
 interface TokenRecord {
@@ -43,6 +48,28 @@ interface LabelRequestBody {
 
 const MAX_CONTROLS_PER_REQUEST = 40;
 const MAX_BODY_BYTES = 256 * 1024;
+
+// Prepaid credit bundles — the top-up options offered at checkout.
+// Amounts are USD cents (Stripe's integer-cents unit) so the Stripe webhook
+// can map a completed payment straight back to a credit grant.
+//
+// Sized so Stripe's fixed $0.30-per-transaction fee is a small slice of each
+// purchase: 5% at $6 and 3% at $10, versus ~10% on the old $3 bundle. On
+// small amounts the fixed $0.30 — not the 2.9% — dominates, so the fix is
+// bigger bundles, not a higher per-credit price. Per-credit price stays low
+// ($0.025 and $0.02) to stay honest for a price-sensitive assistive-tech
+// audience; the proxy runs on Haiku at ~$0.005–0.01/page.
+const BUNDLES = [
+  { id: 'starter', label: '240 credits', amountCents: 600, credits: 240 },
+  { id: 'plus', label: '500 credits', amountCents: 1000, credits: 500 },
+] as const;
+
+// Map a completed Stripe payment (amount in cents) back to a credit grant, so
+// the credits delivered always match the bundle the customer actually paid
+// for. Returns null for an amount that isn't one of the offered bundles.
+function creditsForAmountCents(amountCents: number): number | null {
+  return BUNDLES.find((b) => b.amountCents === amountCents)?.credits ?? null;
+}
 
 const LABEL_SCHEMA = {
   type: 'object',
@@ -91,6 +118,48 @@ async function timingSafeEqualStrings(a: string, b: string): Promise<boolean> {
     crypto.subtle.digest('SHA-256', enc.encode(b)),
   ]);
   return crypto.subtle.timingSafeEqual(da, db);
+}
+
+async function hmacSha256Hex(secret: string, message: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(message));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Verify a Stripe webhook signature without the Stripe SDK. The header looks
+// like `t=<unix>,v1=<hex>,v1=<hex>...`; the signed payload is `${t}.${body}`.
+// Also rejects timestamps outside a 5-minute window to blunt replay attacks.
+async function verifyStripeSignature(
+  payload: string,
+  header: string | null,
+  secret: string
+): Promise<boolean> {
+  if (!header) return false;
+  let timestamp: string | undefined;
+  const candidates: string[] = [];
+  for (const part of header.split(',')) {
+    const eq = part.indexOf('=');
+    if (eq === -1) continue;
+    const key = part.slice(0, eq);
+    const value = part.slice(eq + 1);
+    if (key === 't') timestamp = value;
+    else if (key === 'v1') candidates.push(value);
+  }
+  const ts = Number(timestamp);
+  if (!Number.isFinite(ts) || candidates.length === 0) return false;
+  if (Math.abs(Date.now() / 1000 - ts) > 300) return false;
+
+  const expected = await hmacSha256Hex(secret, `${timestamp}.${payload}`);
+  for (const candidate of candidates) {
+    if (await timingSafeEqualStrings(expected, candidate)) return true;
+  }
+  return false;
 }
 
 function bearerToken(request: Request): string | null {
@@ -268,6 +337,107 @@ async function handleAddCredits(request: Request, env: Env): Promise<Response> {
   return json({ credits });
 }
 
+interface StripeCheckoutSession {
+  id?: string;
+  amount_total?: number;
+  payment_status?: string;
+  metadata?: { token?: string };
+}
+interface StripeEvent {
+  id?: string;
+  type?: string;
+  data?: { object?: StripeCheckoutSession };
+}
+
+// One-time payments only — no subscription lifecycle. On a completed checkout
+// we derive the credit grant from the amount paid (so it always matches a
+// BUNDLES entry), then either top up the token in the session metadata or mint
+// a fresh one. A minted token is stashed under checkout:<session id> (short
+// TTL) so the Stripe success page can read it back once via GET /v1/checkout.
+async function handleStripeWebhook(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const secret = env.STRIPE_WEBHOOK_SECRET;
+  if (!secret) return json({ error: 'Stripe integration not yet enabled' }, 501);
+
+  const payload = await request.text();
+  const signature = request.headers.get('Stripe-Signature');
+  if (!(await verifyStripeSignature(payload, signature, secret))) {
+    return json({ error: 'Invalid signature' }, 400);
+  }
+
+  let event: StripeEvent;
+  try {
+    event = JSON.parse(payload);
+  } catch {
+    return json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  // Best-effort idempotency: Stripe may deliver an event more than once, and a
+  // double mint would give away free credits. KV is eventually consistent, so
+  // this is not a hard guarantee — it just closes the common retry case.
+  if (event.id) {
+    const seenKey = `stripe_event:${event.id}`;
+    if (await env.TOKENS.get(seenKey)) return json({ received: true });
+    ctx.waitUntil(env.TOKENS.put(seenKey, '1', { expirationTtl: 86400 }));
+  }
+
+  // Ack everything else so Stripe stops retrying.
+  if (event.type !== 'checkout.session.completed') return json({ received: true });
+
+  const session = event.data?.object ?? {};
+  if (session.payment_status && session.payment_status !== 'paid') {
+    return json({ received: true });
+  }
+
+  const credits = creditsForAmountCents(Number(session.amount_total));
+  if (!credits) {
+    console.log(JSON.stringify({ event: 'stripe_unknown_amount', amount: session.amount_total }));
+    return json({ received: true });
+  }
+
+  const existingToken = session.metadata?.token;
+  if (existingToken) {
+    const tokenHash = await sha256Hex(existingToken);
+    const record = await env.TOKENS.get<TokenRecord>(`token:${tokenHash}`, 'json');
+    if (!record) {
+      console.log(JSON.stringify({ event: 'stripe_topup_unknown_token' }));
+      return json({ received: true });
+    }
+    const balance = (await getCredits(env, tokenHash)) + credits;
+    await env.TOKENS.put(`credits:${tokenHash}`, String(balance));
+    console.log(JSON.stringify({ event: 'stripe_topup', add: credits, credits: balance }));
+    return json({ received: true });
+  }
+
+  const token = `prt_${crypto.randomUUID().replace(/-/g, '')}`;
+  const tokenHash = await sha256Hex(token);
+  const record: TokenRecord = { createdAt: new Date().toISOString(), plan: 'credits', note: 'stripe' };
+  await Promise.all([
+    env.TOKENS.put(`token:${tokenHash}`, JSON.stringify(record)),
+    env.TOKENS.put(`credits:${tokenHash}`, String(credits)),
+  ]);
+  if (session.id) {
+    await env.TOKENS.put(`checkout:${session.id}`, JSON.stringify({ token, credits }), {
+      expirationTtl: 3600,
+    });
+  }
+  console.log(JSON.stringify({ event: 'stripe_mint', credits }));
+  return json({ received: true });
+}
+
+// Let the Stripe success page fetch the token minted for a just-completed
+// checkout. Session ids are unguessable and the entry self-expires; still,
+// treat this as a one-time hand-off, not a lookup API.
+async function handleCheckoutLookup(request: Request, env: Env): Promise<Response> {
+  const sessionId = new URL(request.url).searchParams.get('session_id');
+  if (!sessionId) return json({ error: 'session_id required' }, 400);
+  const stored = await env.TOKENS.get(`checkout:${sessionId}`);
+  if (!stored) return json({ error: 'Not found or expired' }, 404);
+  return new Response(stored, {
+    status: 200,
+    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+  });
+}
+
 export default {
   async fetch(request, env, ctx): Promise<Response> {
     const url = new URL(request.url);
@@ -282,6 +452,14 @@ export default {
       if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/health')) {
         return json({ service: 'page-repair-proxy', status: 'ok' });
       }
+      // Public catalog of purchasable bundles so the extension's options page
+      // shows prices from one source instead of hard-coding them.
+      if (request.method === 'GET' && url.pathname === '/v1/bundles') {
+        return json({ bundles: BUNDLES });
+      }
+      if (request.method === 'GET' && url.pathname === '/v1/checkout') {
+        return await handleCheckoutLookup(request, env);
+      }
       if (request.method === 'POST' && url.pathname === '/v1/label') {
         return await handleLabel(request, env, ctx);
       }
@@ -292,15 +470,9 @@ export default {
         return await handleAddCredits(request, env);
       }
       if (request.method === 'POST' && url.pathname === '/webhooks/stripe') {
-        // Stub until there are real users. One-time payments only — no
-        // subscription lifecycle. The wiring will be:
-        //   1. Verify the Stripe-Signature header with STRIPE_WEBHOOK_SECRET.
-        //   2. checkout.session.completed:
-        //      - new customer (no token in metadata) -> mint token with the
-        //        purchased credits, deliver it on the success page/email
-        //      - top-up (token in checkout metadata)  -> add credits, same
-        //        path as /admin/credits
-        return json({ error: 'Stripe integration not yet enabled' }, 501);
+        // Returns 501 until STRIPE_WEBHOOK_SECRET is set; otherwise verifies
+        // the signature and mints/tops-up credits per the paid amount.
+        return await handleStripeWebhook(request, env, ctx);
       }
       return json({ error: 'Not found' }, 404);
     } catch (e) {

@@ -27,5 +27,6 @@
   // Secrets (set with `wrangler secret put <NAME>`):
   //   ANTHROPIC_API_KEY  — the server-held key all paid traffic uses
   //   ADMIN_SECRET       — authorizes POST /admin/tokens
-  //   STRIPE_WEBHOOK_SECRET (later) — verifies Stripe event signatures
+  //   STRIPE_WEBHOOK_SECRET — verifies Stripe event signatures; /webhooks/stripe
+  //                           returns 501 until it is set
 }

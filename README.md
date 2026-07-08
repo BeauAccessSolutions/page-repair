@@ -65,7 +65,7 @@ tokens than full-page regeneration).
    heading/landmark repair works with no configuration at all):
    - **Option A — your own API key.** Calls go straight from the browser to
      Anthropic; auditable, nothing passes through our servers.
-   - **Option B — subscription token.** Routes through the metered proxy in
+   - **Option B — prepaid credit token.** Routes through the metered proxy in
      [`proxy/`](proxy/README.md); no Anthropic account needed. Personal key
      wins if both are set.
 3. On any page: press Alt+Shift+R or click the toolbar button.
