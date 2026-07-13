@@ -140,9 +140,17 @@ The host page is a live, adversarial, ever-changing environment. Design for it.
 ### 2.3 Isolate anything you render
 - The live region uses inline styles scoped to a single `id` and injects nothing
   else. Any future injected UI must be **isolated from host CSS in both
-  directions**: prefer a closed **shadow root** (or an `iframe` for richer
-  chrome) so host stylesheets can't restyle our controls and our styles can't
-  leak into the page. Never rely on class names that could collide with the host.
+  directions** so host stylesheets can't restyle our controls and our styles
+  can't leak into the page. The sanctioned mount is
+  [`src/isolate.js`](../../src/isolate.js) — `PageRepairIsolate.createIsolatedHost(id)`
+  returns a namespaced, `data-page-repair`-marked host with an **open shadow
+  root** (CSS isolation is identical to closed; open stays debuggable and
+  re-findable — see the module header for the decision) whose base reset does
+  `:host { all: initial }` plus a `prefers-reduced-motion` / `color-scheme` path.
+  Mount visible UI into the returned shadow `root`, never onto a bare host node;
+  never rely on class names that could collide with the host. (The live region
+  itself deliberately stays an inline-hidden host node — announcement reliability
+  beats CSS-isolating an invisible element.)
 - Use a namespaced, collision-proof marker for our own nodes/attributes
   (`data-page-repair`, `#page-repair-status`). One marker, easy to find, easy to
   strip on undo.
@@ -252,9 +260,13 @@ site at once, silently.
   **every new feature must preserve it.**
 - Commands arrive via the browser command API and the background worker, so the
   host's own paste/copy/keyboard handling is never in our call path.
-- **Test gate:** a paste/clipboard regression test on a host fixture with its own
-  paste handler (e.g. a rich-text field) should confirm the page's handler still
-  fires and receives the pasted content after a repair pass.
+- **Test gate (implemented):** `test/unit.mjs` → *never-block-paste (§5.1)* locks
+  this two ways — a **structural** check that a full repair pass registers none of
+  `paste`/`copy`/`cut`/`keydown`/`keyup`/`keypress`/`beforeinput` on `document` or
+  `window` (loading the real `content.js` source, not a stand-in), and a
+  **behavioral** check that a host input's own paste handler still fires and is
+  never `defaultPrevented` after a repair. If anyone later adds a global clipboard
+  or key hook, the structural test fails.
 
 ### 5.2 Reduced motion (hard rule)
 - We introduce **zero animation on the host**, which is the strongest possible
