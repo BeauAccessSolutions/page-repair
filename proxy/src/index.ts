@@ -17,10 +17,18 @@
  *                           (Bearer ADMIN_SECRET)
  *   POST /admin/credits   — top up an existing token (Bearer ADMIN_SECRET)
  *
- * Storage (KV):
- *   token:<sha256(token)>   -> TokenRecord JSON
- *   credits:<sha256(token)> -> remaining credit balance (stringified int)
+ * Storage:
+ *   KV  token:<sha256(token)>  -> TokenRecord JSON (metadata + disabled flag)
+ *   DO  CreditsAccount[hash]   -> the credit balance, one Durable Object per
+ *                                 token. Balance mutation lives here so the
+ *                                 spend is atomic: a DO serializes concurrent
+ *                                 requests, so "read balance, decrement if >0"
+ *                                 cannot interleave the way a KV read-then-put
+ *                                 can. This is the hard prepaid-limit enforcer
+ *                                 that a leaked token cannot race past.
  */
+
+import { DurableObject } from 'cloudflare:workers';
 
 interface TokenRecord {
   createdAt: string;
@@ -129,8 +137,77 @@ function bearerToken(request: Request): string | null {
   return match ? match[1].trim() : null;
 }
 
-async function getCredits(env: Env, tokenHash: string): Promise<number> {
-  return Number((await env.TOKENS.get(`credits:${tokenHash}`)) || '0');
+/**
+ * One Durable Object per token holds that token's credit balance. Because a
+ * DO processes calls to a given instance one at a time, the read-modify-write
+ * inside spend() is atomic — N concurrent /v1/label requests on the same
+ * token are serialized, so exactly `balance` of them can spend, not all N.
+ * This is what turns "fire 200 in parallel on 1 credit" from a lottery into
+ * a hard limit.
+ */
+export class CreditsAccount extends DurableObject<Env> {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    ctx.blockConcurrencyWhile(async () => {
+      this.ctx.storage.sql.exec(
+        `CREATE TABLE IF NOT EXISTS account (
+           id INTEGER PRIMARY KEY CHECK (id = 0),
+           balance INTEGER NOT NULL DEFAULT 0
+         )`
+      );
+      this.ctx.storage.sql.exec('INSERT OR IGNORE INTO account (id, balance) VALUES (0, 0)');
+    });
+  }
+
+  balance(): number {
+    return this.ctx.storage.sql
+      .exec<{ balance: number }>('SELECT balance FROM account WHERE id = 0')
+      .one().balance;
+  }
+
+  /**
+   * Atomically decrement if the balance is positive. Returns whether a credit
+   * was spent and the resulting balance. The conditional UPDATE ... RETURNING
+   * yields zero rows when the balance was already 0, so no over-spend slips
+   * through even under concurrency (calls to one DO instance are serialized).
+   */
+  spend(): { ok: boolean; balance: number } {
+    const rows = this.ctx.storage.sql
+      .exec<{ balance: number }>(
+        'UPDATE account SET balance = balance - 1 WHERE id = 0 AND balance > 0 RETURNING balance'
+      )
+      .toArray();
+    if (rows.length === 0) return { ok: false, balance: this.balance() };
+    return { ok: true, balance: rows[0].balance };
+  }
+
+  /** Return a spent credit after an upstream failure. */
+  refund(): number {
+    return this.ctx.storage.sql
+      .exec<{ balance: number }>(
+        'UPDATE account SET balance = balance + 1 WHERE id = 0 RETURNING balance'
+      )
+      .one().balance;
+  }
+
+  /** Set the balance to an exact value (used when minting a token). */
+  grant(credits: number): void {
+    this.ctx.storage.sql.exec('UPDATE account SET balance = ? WHERE id = 0', Math.max(0, credits));
+  }
+
+  /** Add credits (top-up) and return the new balance. */
+  topup(add: number): number {
+    return this.ctx.storage.sql
+      .exec<{ balance: number }>(
+        'UPDATE account SET balance = balance + ? WHERE id = 0 RETURNING balance',
+        add
+      )
+      .one().balance;
+  }
+}
+
+function creditsAccount(env: Env, tokenHash: string): DurableObjectStub<CreditsAccount> {
+  return env.CREDITS.getByName(tokenHash);
 }
 
 function buildPrompt(issues: LabelIssue[], pageTitle: string, pageUrl: string): string {
@@ -173,19 +250,17 @@ async function handleLabel(request: Request, env: Env, ctx: ExecutionContext): P
     return json({ error: 'issues[] required' }, 400);
   }
 
-  // Spend the credit up front and refund on upstream failure. KV has no
-  // atomic decrement, so concurrent requests can still race — but the race
-  // window is now one KV round-trip instead of a whole Anthropic call,
-  // which turns "fire 200 in parallel on 1 credit" from a working drain
-  // into a lottery. Hard enforcement needs D1 or a Durable Object.
-  const credits = await getCredits(env, tokenHash);
-  if (credits <= 0) {
+  // Spend the credit up front and refund on upstream failure. The per-token
+  // Durable Object serializes concurrent spends, so this is a hard prepaid
+  // limit — not a narrowed race window. A spend that finds no balance returns
+  // ok:false and we stop before reaching Anthropic.
+  const account = creditsAccount(env, tokenHash);
+  const spent = await account.spend();
+  if (!spent.ok) {
     return json({ error: 'Out of credits', credits: 0 }, 402);
   }
-  const remaining = credits - 1;
-  await env.TOKENS.put(`credits:${tokenHash}`, String(remaining));
-  const refund = () =>
-    env.TOKENS.put(`credits:${tokenHash}`, String(remaining + 1)).catch(() => {});
+  const remaining = spent.balance;
+  const refund = () => account.refund().then(() => undefined).catch(() => {});
 
   const issues = body.issues.slice(0, MAX_CONTROLS_PER_REQUEST).map((i) => ({
     selector: String(i.selector).slice(0, 500),
@@ -267,7 +342,7 @@ async function handleBalance(request: Request, env: Env): Promise<Response> {
   const tokenHash = await sha256Hex(token);
   const record = await env.TOKENS.get<TokenRecord>(`token:${tokenHash}`, 'json');
   if (!record || record.disabled) return json({ error: 'Invalid or disabled token' }, 403);
-  return json({ credits: await getCredits(env, tokenHash) });
+  return json({ credits: await creditsAccount(env, tokenHash).balance() });
 }
 
 async function requireAdmin(request: Request, env: Env): Promise<Response | null> {
@@ -291,7 +366,7 @@ async function handleCreateToken(request: Request, env: Env): Promise<Response> 
   const record: TokenRecord = { createdAt: new Date().toISOString(), plan: 'credits', note };
   await Promise.all([
     env.TOKENS.put(`token:${tokenHash}`, JSON.stringify(record)),
-    env.TOKENS.put(`credits:${tokenHash}`, String(credits)),
+    creditsAccount(env, tokenHash).grant(credits),
   ]);
   // The plaintext token is returned exactly once and never stored.
   return json({ token, credits, record }, 201);
@@ -319,8 +394,7 @@ async function handleAddCredits(request: Request, env: Env): Promise<Response> {
   const record = await env.TOKENS.get<TokenRecord>(`token:${tokenHash}`, 'json');
   if (!record) return json({ error: 'Unknown token' }, 404);
 
-  const credits = (await getCredits(env, tokenHash)) + add;
-  await env.TOKENS.put(`credits:${tokenHash}`, String(credits));
+  const credits = await creditsAccount(env, tokenHash).topup(add);
   console.log(JSON.stringify({ event: 'topup', add, credits }));
   return json({ credits });
 }

@@ -14,6 +14,13 @@
       "id": "e0a7eec658d646a194dee95a393d8f78"
     }
   ],
+  // Per-token credit balances live in a Durable Object so the spend is atomic
+  // (see CreditsAccount in src/index.ts). No external resource to provision —
+  // the SQLite-backed class ships with the Worker on deploy.
+  "durable_objects": {
+    "bindings": [{ "name": "CREDITS", "class_name": "CreditsAccount" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["CreditsAccount"] }],
   "vars": {
     // Haiku is the paid-tier default: labeling a control from its HTML
     // context is well within its ability, it is the fastest option, and it
