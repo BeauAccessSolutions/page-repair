@@ -55,7 +55,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'label-controls') {
     labelControls(msg)
       .then(sendResponse)
-      .catch((e) => sendResponse({ error: String(e.message || e) }));
+      .catch((e) =>
+        sendResponse({
+          // The 60s AbortSignal.timeout rejects with a TimeoutError; give it
+          // blame-free copy instead of leaking "signal timed out". (This is
+          // routed to the assertive live region in content.js.)
+          error:
+            e && (e.name === 'TimeoutError' || /timed out/i.test(String(e && e.message)))
+              ? 'Labeling timed out — check your connection and run repair again.'
+              : String((e && e.message) || e),
+        })
+      );
     return true; // async response
   }
   if (msg.type === 'test-connection') {
