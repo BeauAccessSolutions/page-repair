@@ -26,9 +26,11 @@ const MAX_LABEL_BATCH = 40;
 // page as the site shipped it, not our patched version.
 let lastAudit = null;
 
-// Create the live region now, at injection time: a region that enters the
-// DOM in the same breath as its first message gets dropped by screen readers.
-PageRepairApply.ensureRegion();
+// Create both live regions now, at injection time: a region that enters the
+// DOM in the same breath as its first message gets dropped by screen readers,
+// so the assertive failure channel must be warm before the first failure too.
+PageRepairApply.ensureRegion('polite');
+PageRepairApply.ensureRegion('assertive');
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Injection guard: lets the background worker detect an already-injected
@@ -103,14 +105,14 @@ async function repairPage() {
       pageUrl: location.origin + location.pathname,
     });
   } catch (e) {
-    PageRepairApply.announce('Page repair: could not label controls (extension error).');
+    PageRepairApply.announce('Page repair: could not label controls (extension error).', 'assertive');
     console.error('[page-repair] background error', e);
     return;
   }
   const llmMs = performance.now() - tLlm;
 
   if (response?.error) {
-    PageRepairApply.announce(`Page repair: could not label controls. ${response.error}`);
+    PageRepairApply.announce(`Page repair: could not label controls. ${response.error}`, 'assertive');
     console.warn('[page-repair] labeling failed:', response.error);
     return;
   }
@@ -229,6 +231,6 @@ async function copyAuditReport() {
     PageRepairApply.announce('Accessibility report copied to clipboard. Paste it into an email or feedback form.');
   } catch {
     console.log('[page-repair] report (clipboard unavailable):\n' + report);
-    PageRepairApply.announce('Could not access the clipboard. The report was printed to the browser console instead.');
+    PageRepairApply.announce('Could not access the clipboard. The report was printed to the browser console instead.', 'assertive');
   }
 }

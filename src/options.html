@@ -2,17 +2,36 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
+  <meta name="color-scheme" content="light dark" />
   <title>Page Repair — Options</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; line-height: 1.5; }
+    /* Theme tokens — default (light) values, overridden in dark below. All
+       pairs verified ≥ 4.5:1 text / ≥ 3:1 UI-component boundaries against
+       their own surface, per platform §4 (both themes). */
+    :root {
+      color-scheme: light dark;
+      --fg: #1a1a1a;
+      --bg: #ffffff;
+      --field-border: #767676;   /* ≥ 3:1 on white (SC 1.4.11) */
+      --field-bg: #ffffff;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --fg: #e6e6e6;
+        --bg: #1b1b1b;
+        --field-border: #8a8a8a;  /* ≥ 3:1 on #1b1b1b */
+        --field-bg: #262626;
+      }
+    }
+    body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; line-height: 1.5; color: var(--fg); background: var(--bg); }
     label { display: block; font-weight: 600; margin-top: 1.25rem; }
-    input, select { width: 100%; padding: 0.5rem; font-size: 1rem; margin-top: 0.25rem; box-sizing: border-box; }
-    button { margin-top: 0.75rem; padding: 0.6rem 1.5rem; font-size: 1rem; }
+    input, select { width: 100%; padding: 0.5rem; font-size: 1rem; margin-top: 0.25rem; box-sizing: border-box; color: var(--fg); background: var(--field-bg); border: 1px solid var(--field-border); }
+    button { margin-top: 0.75rem; padding: 0.6rem 1.5rem; font-size: 1rem; color: var(--fg); background: var(--field-bg); border: 1px solid var(--field-border); }
     .reveal { display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 400; margin-top: 0.4rem; }
     .reveal input { width: auto; margin: 0; }
     #status { margin-left: 1rem; }
     .result { margin-top: 0.5rem; }
-    kbd { border: 1px solid #999; border-radius: 3px; padding: 0 0.3em; font-size: 0.95em; }
+    kbd { border: 1px solid var(--field-border); border-radius: 3px; padding: 0 0.3em; font-size: 0.95em; }
   </style>
 </head>
 <body>
@@ -26,7 +45,9 @@
   </p>
 
   <h2>Keyboard shortcuts</h2>
-  <ul id="shortcuts" aria-live="polite">
+  <!-- Populated once on load, static thereafter — no aria-live, so a screen
+       reader doesn't read the whole list unprompted when options opens. -->
+  <ul id="shortcuts">
     <li>Loading current shortcuts…</li>
   </ul>
   <p>

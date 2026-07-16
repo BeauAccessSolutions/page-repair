@@ -64,27 +64,42 @@ const PageRepairApply = (() => {
     return restored;
   }
 
-  // One polite live region for the post-repair summary. Screen readers
-  // announce it without stealing focus or interrupting mid-utterance.
+  // Two live regions, created together:
+  //   - polite (role="status")  → what the repair did: the normal summary.
+  //     Announced without stealing focus or interrupting mid-utterance.
+  //   - assertive (role="alert") → failures the user must not miss. A repair
+  //     that failed is exactly the case a blind user needs told promptly; a
+  //     polite failure can queue behind their current utterance or be missed
+  //     entirely if they've moved on. Per platform §4 (SC 4.1.3), failures
+  //     route here, success/partial-progress stays polite.
+  const REGIONS = {
+    polite: { id: 'page-repair-status', role: 'status', live: 'polite' },
+    assertive: { id: 'page-repair-alert', role: 'alert', live: 'assertive' },
+  };
+  const HIDDEN_CSS =
+    'position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;';
+  // Both regions register at the same moment, so one warm-up clock covers both.
   let regionCreatedAt = 0;
 
-  function ensureRegion() {
-    let region = document.getElementById('page-repair-status');
+  function ensureRegion(tone = 'polite') {
+    const spec = REGIONS[tone] || REGIONS.polite;
+    let region = document.getElementById(spec.id);
     if (!region) {
       region = document.createElement('div');
-      region.id = 'page-repair-status';
-      region.setAttribute('role', 'status');
-      region.setAttribute('aria-live', 'polite');
-      region.style.cssText =
-        'position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;';
+      region.id = spec.id;
+      region.setAttribute('role', spec.role);
+      region.setAttribute('aria-live', spec.live);
+      region.style.cssText = HIDDEN_CSS;
       (document.body || document.documentElement).appendChild(region);
-      regionCreatedAt = performance.now();
+      // First region in stamps the warm-up clock for both.
+      if (!regionCreatedAt) regionCreatedAt = performance.now();
     }
     return region;
   }
 
-  function announce(message) {
-    const region = ensureRegion();
+  // tone: 'polite' (default) for status, 'assertive' for failures.
+  function announce(message, tone = 'polite') {
+    const region = ensureRegion(tone);
     // Screen readers drop changes to a live region that entered the DOM in
     // the same breath — the region must be in the accessibility tree before
     // its content mutates. Give a just-created region ~300ms to register;
