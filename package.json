@@ -6,7 +6,9 @@
   "license": "ISC",
   "type": "commonjs",
   "scripts": {
-    "test": "node test/unit.mjs",
+    "test": "node test/unit.mjs && node test/contrast.mjs",
+    "test:unit": "node test/unit.mjs",
+    "test:contrast": "node test/contrast.mjs",
     "latency": "node test/latency.mjs"
   },
   "dependencies": {

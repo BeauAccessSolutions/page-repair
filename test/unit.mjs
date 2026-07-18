@@ -359,4 +359,141 @@ test("a host input keeps its own paste handler, unprevented, after a repair pass
   cleanupContentGlobals();
 });
 
-console.log(`\n${passed} tests passed${process.exitCode ? ' (with failures)' : ''}`);
+// ---------------------------------------------------- live-region spine (§4)
+
+// These guard the platform §4 contract that the extension's status surface
+// rests on. Every assertion here reads the real DOM the shipped content script
+// produced — counting announce() *calls* would pass while a screen reader hears
+// nothing, which is the exact failure this suite exists to catch.
+
+console.log('live-region spine (§4)');
+
+// announce() deliberately delays the text write (~300ms for a freshly created
+// region) so screen readers register the region before its content mutates.
+// Tests must therefore wait out that warm-up rather than assert synchronously.
+const ANNOUNCE_SETTLE_MS = 450;
+const settle = () => new Promise((r) => setTimeout(r, ANNOUNCE_SETTLE_MS));
+
+const asyncTests = [];
+function atest(name, fn) {
+  asyncTests.push([name, fn]);
+}
+
+function liveRegions(d) {
+  return {
+    polite: d.getElementById('page-repair-status'),
+    assertive: d.getElementById('page-repair-alert'),
+  };
+}
+
+function contentStub(sendMessage) {
+  const messageListeners = [];
+  return {
+    messageListeners,
+    chrome: {
+      runtime: {
+        onMessage: { addListener: (fn) => messageListeners.push(fn) },
+        sendMessage,
+      },
+    },
+  };
+}
+
+const LOC = { href: 'https://host.example/p', origin: 'https://host.example', pathname: '/p' };
+
+test('both live regions are pre-created at injection, before any message arrives', () => {
+  const d = doc('<h1>Title</h1>');
+  const stub = contentStub(async () => ({ labels: [] }));
+  loadContentScript(d, stub.chrome, LOC);
+
+  // No message has been dispatched — creation must already have happened. A
+  // region that first enters the DOM alongside its content gets dropped by
+  // screen readers, so lazy creation means the first failure is never spoken.
+  const { polite, assertive } = liveRegions(d);
+  assert.ok(polite, 'polite region must exist at injection time');
+  assert.ok(assertive, 'assertive region must exist at injection time, not on first error');
+  assert.equal(polite.getAttribute('role'), 'status');
+  assert.equal(polite.getAttribute('aria-live'), 'polite');
+  assert.equal(assertive.getAttribute('role'), 'alert');
+  assert.equal(assertive.getAttribute('aria-live'), 'assertive');
+  assert.equal(polite.textContent, '', 'regions start empty');
+  assert.equal(assertive.textContent, '', 'regions start empty');
+  cleanupContentGlobals();
+});
+
+atest('a success summary speaks politely and leaves the assertive channel silent', async () => {
+  const d = doc('<h1>Title</h1><h3>Skipped level</h3><p>body</p>');
+  const stub = contentStub(async () => ({ labels: [] }));
+  loadContentScript(d, stub.chrome, LOC);
+  stub.messageListeners[0]({ type: 'repair-page' }, null, () => {});
+  await settle();
+
+  const { polite, assertive } = liveRegions(d);
+  assert.match(polite.textContent, /Page repair:/, 'the repair summary lands in the polite region');
+  assert.equal(assertive.textContent, '', 'a successful repair must never fire the alert region');
+  cleanupContentGlobals();
+});
+
+atest('a background failure speaks assertively and does not land in the polite region', async () => {
+  // An unnamed button is an ambiguous control, so repairPage proceeds to
+  // phase 2 and hits the background worker — which we make fail.
+  const d = doc('<h1>Title</h1><button></button>');
+  const stub = contentStub(async () => {
+    throw new Error('extension context invalidated');
+  });
+  loadContentScript(d, stub.chrome, LOC);
+  stub.messageListeners[0]({ type: 'repair-page' }, null, () => {});
+  await settle();
+
+  const { polite, assertive } = liveRegions(d);
+  assert.match(
+    assertive.textContent,
+    /could not label controls/,
+    'a genuine failure must route to the assertive region — SC 4.1.3'
+  );
+  assert.doesNotMatch(
+    polite.textContent,
+    /could not label controls/,
+    'the failure must not also be announced politely (double-read)'
+  );
+  cleanupContentGlobals();
+});
+
+atest('partial progress is NOT a failure — it stays on the polite channel', async () => {
+  // 45 unnamed controls exceeds MAX_LABEL_BATCH (40), so repairPage emits the
+  // "Labeling 40 of 45 … run repair again for the rest" summary. That is
+  // partial progress, not an error, and must not seize the assertive channel.
+  //
+  // The worker stub never resolves, so phase 2 never announces: that pins the
+  // polite region to the phase-1 message we are asserting about. (A stub that
+  // resolves instantly races phase 2's ~50ms write against phase 1's ~300ms
+  // region warm-up and makes the observed end state order-dependent.)
+  const d = doc('<h1>Title</h1>' + '<button></button>'.repeat(45));
+  const stub = contentStub(() => new Promise(() => {}));
+  loadContentScript(d, stub.chrome, LOC);
+  stub.messageListeners[0]({ type: 'repair-page' }, null, () => {});
+  await settle();
+
+  const { polite, assertive } = liveRegions(d);
+  assert.match(polite.textContent, /run repair again for the rest/, 'partial progress announces politely');
+  assert.equal(assertive.textContent, '', 'partial progress must not fire the alert region');
+  cleanupContentGlobals();
+});
+
+// --------------------------------------------------------------------------
+
+const run = async () => {
+  for (const [name, fn] of asyncTests) {
+    try {
+      await fn();
+      passed++;
+      console.log(`  ok - ${name}`);
+    } catch (e) {
+      console.error(`  FAIL - ${name}\n    ${e.message}`);
+      process.exitCode = 1;
+    }
+  }
+  console.log(`\n${passed} tests passed${process.exitCode ? ' (with failures)' : ''}`);
+};
+
+await run();

@@ -1,0 +1,36 @@
+name: CI
+
+# This repo had no CI: `npm test` existed but ran only when someone remembered.
+# The accessibility invariants in test/unit.mjs (§4 live-region spine) and
+# test/contrast.mjs (SC 1.4.3 / 1.4.11 in both themes) are the kind that fail
+# silently for screen-reader users, so they need a gate that runs unprompted.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # Selector round-trip, apply/undo, shadow isolation, never-block-paste,
+      # and the live-region spine (both regions pre-created; failures assertive,
+      # success and partial progress polite).
+      - name: Unit tests
+        run: npm run test:unit
+
+      # Recomputes every text (>=4.5:1) and UI-boundary (>=3:1) pair from the
+      # token hexes in src/options.html, in light AND dark. Fails closed on a
+      # :root token that no verified pair claims.
+      - name: Contrast gate (both themes)
+        run: npm run test:contrast
