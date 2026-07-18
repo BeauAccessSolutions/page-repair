@@ -24,8 +24,10 @@ jobs:
       - run: npm ci
 
       # Selector round-trip, apply/undo, shadow isolation, never-block-paste,
-      # and the live-region spine (both regions pre-created; failures assertive,
-      # success and partial progress polite).
+      # the live-region spine (both regions pre-created; failures assertive,
+      # success and partial progress polite), and no-double-read (§4 C3: a
+      # status routed through the shared announcer must leave the visible node
+      # AT-silent — no nested regions, no visible echo of announced text).
       - name: Unit tests
         run: npm run test:unit
 

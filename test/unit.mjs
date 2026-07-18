@@ -480,6 +480,185 @@ atest('partial progress is NOT a failure — it stays on the polite channel', as
   cleanupContentGlobals();
 });
 
+// ------------------------------------------------- no double-read (§4 C3)
+
+// Platform §4.1 contract C3: routing a status type through the shared
+// announcer means the visible node must go AT-silent. `role="status"` *is*
+// a polite live region, so a visible typing/connection/presence node that
+// keeps it while ALSO feeding the shared utility is spoken twice — once by
+// the node, once by the announcer. The documented fix is to strip
+// `role="status"`/`aria-live` from the visible element (`aria-hidden="true"`
+// or plain text) so exactly one path speaks.
+//
+// This section is a regression gate, not a bug report: page-repair's own
+// announcer writes only into its two visually-hidden regions, so the driven
+// surface is clean today. The detector below is what keeps it that way, and
+// the seeded positive control keeps the detector from rotting into a no-op.
+
+console.log('no double-read (§4 C3)');
+
+// A role that is itself a live region. `log` is included because a transcript
+// that already voices incoming messages is the same trap as `status`.
+const LIVE_ROLES = new Set(['status', 'alert', 'log']);
+
+function isLiveRegion(el) {
+  const live = el.getAttribute('aria-live');
+  if (live && live !== 'off') return true;
+  return LIVE_ROLES.has(el.getAttribute('role'));
+}
+
+// `aria-hidden` on the node or any ancestor removes it from the a11y tree —
+// that is precisely the documented C3 fix, so it must clear a violation.
+function isAtSilent(el) {
+  for (let n = el; n && n.getAttribute; n = n.parentElement) {
+    if (n.getAttribute('aria-hidden') === 'true') return true;
+  }
+  return false;
+}
+
+// The nearest live region at or above `el` — i.e. what would speak it.
+function speakingAncestor(el) {
+  for (let n = el; n && n.getAttribute; n = n.parentElement) {
+    if (isLiveRegion(n)) return n;
+  }
+  return null;
+}
+
+const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+const describe = (el) =>
+  `<${el.tagName.toLowerCase()}${el.id ? ` id="${el.id}"` : ''}` +
+  `${el.getAttribute('role') ? ` role="${el.getAttribute('role')}"` : ''}>`;
+
+/*
+ * Find every place a single status change would be announced by two paths.
+ *
+ * (a) nested live regions — a region inside another region: the outer one
+ *     speaks the mutation too, so one change is voiced twice. This is the
+ *     `role="log"` transcript case when a child carries `role="status"`.
+ * (b) echoed announcements — a visible node whose text duplicates something
+ *     handed to the shared announcer, while that node (or an ancestor) is
+ *     itself a live region. This is the KindredAccess shape exactly.
+ *
+ * `announcerIds` are the sanctioned regions: they are *supposed* to carry the
+ * announced text, so they and their subtrees are exempt from (b).
+ */
+function doubleReadViolations(root, { announced = [], announcerIds = [] } = {}) {
+  const violations = [];
+  const announcers = announcerIds.map((id) => root.getElementById(id)).filter(Boolean);
+  const all = [...root.querySelectorAll('*')];
+
+  for (const el of all) {
+    if (!isLiveRegion(el) || isAtSilent(el)) continue;
+    const outer = el.parentElement && speakingAncestor(el.parentElement);
+    if (outer) {
+      violations.push(
+        `nested live region: ${describe(el)} inside ${describe(outer)} — ` +
+          'one change, two announcements'
+      );
+    }
+  }
+
+  const wanted = new Set(announced.map(norm).filter(Boolean));
+  const echoes = all.filter((el) => {
+    if (announcers.some((a) => a === el || a.contains(el))) return false;
+    if (isAtSilent(el)) return false;
+    return wanted.has(norm(el.textContent)) && speakingAncestor(el);
+  });
+  // Report only the innermost match, so a wrapper whose sole content is the
+  // offending span doesn't double the failure output.
+  for (const el of echoes) {
+    if (echoes.some((other) => other !== el && el.contains(other))) continue;
+    const speaker = speakingAncestor(el);
+    const via = speaker === el ? 'itself a live region' : `live via ancestor ${describe(speaker)}`;
+    violations.push(
+      `announced text also spoken by ${describe(el)} (${via}): "${norm(el.textContent)}"`
+    );
+  }
+  return violations;
+}
+
+const ANNOUNCER_IDS = ['page-repair-status', 'page-repair-alert'];
+
+// Positive control. Without this, the gate would still pass if the detector
+// silently stopped detecting — the seeded bug is the proof it has teeth.
+// Shape is the real KindredAccess defect: a visible typing indicator that
+// kept the `role="status"` it already had while also feeding a shared
+// announcer, so every change read twice.
+test('SEEDED BUG: a visible role="status" node that also feeds the announcer is caught', () => {
+  const d = doc(
+    '<div id="page-repair-status" role="status" aria-live="polite">Alex is typing</div>' +
+      '<p id="typing" role="status">Alex is typing</p>'
+  );
+  const found = doubleReadViolations(d, {
+    announced: ['Alex is typing'],
+    announcerIds: ANNOUNCER_IDS,
+  });
+  assert.equal(found.length, 1, `expected exactly one violation, got: ${found.join(' | ')}`);
+  assert.match(found[0], /also spoken by <p id="typing" role="status">/);
+});
+
+test('the documented fix — aria-hidden on the visible node — clears the violation', () => {
+  const d = doc(
+    '<div id="page-repair-status" role="status" aria-live="polite">Alex is typing</div>' +
+      '<p id="typing" role="status" aria-hidden="true">Alex is typing</p>'
+  );
+  assert.deepEqual(
+    doubleReadViolations(d, { announced: ['Alex is typing'], announcerIds: ANNOUNCER_IDS }),
+    []
+  );
+});
+
+test('SEEDED BUG: a role="status" child inside a role="log" transcript is caught', () => {
+  // A transcript that already voices incoming messages must not host a nested
+  // region — the log speaks the insertion, the status speaks it again.
+  const d = doc('<div role="log"><p>Hi</p><p id="pres" role="status">Alex joined</p></div>');
+  const found = doubleReadViolations(d, { announcerIds: ANNOUNCER_IDS });
+  assert.equal(found.length, 1, `expected exactly one violation, got: ${found.join(' | ')}`);
+  assert.match(found[0], /nested live region: <p id="pres" role="status"> inside <div role="log">/);
+});
+
+atest('the driven content surface announces each status on exactly one path', async () => {
+  // Drives the real shipped content script through a full repair, captures
+  // what actually reached the shared announcer, then scans the resulting DOM.
+  // Asserting on the real post-repair tree (not on announce() call counts) is
+  // the point: a visible echo added later would pass a call-count check while
+  // a screen reader heard everything twice.
+  const d = doc('<h1>Title</h1><h3>Skipped level</h3><p>body</p><button></button>');
+  const stub = contentStub(async () => ({ labels: [] }));
+  loadContentScript(d, stub.chrome, LOC);
+
+  const announced = [];
+  const realAnnounce = globalThis.PageRepairApply.announce;
+  globalThis.PageRepairApply.announce = (msg, tone) => {
+    announced.push(msg);
+    return realAnnounce(msg, tone);
+  };
+
+  stub.messageListeners[0]({ type: 'repair-page' }, null, () => {});
+  await settle();
+
+  assert.ok(announced.length > 0, 'the repair must have announced something to scan for');
+  assert.deepEqual(
+    doubleReadViolations(d, { announced, announcerIds: ANNOUNCER_IDS }),
+    [],
+    'each announced status must be spoken by exactly one path'
+  );
+  cleanupContentGlobals();
+});
+
+test('the options page stacks no live region inside another', () => {
+  // options.html is the one shipped surface whose live regions are *visible*
+  // (result spans, credit balance, save status). Each must speak alone: no
+  // region nested in another, and none inside a role="log".
+  const html = readFileSync(new URL('../src/options.html', import.meta.url), 'utf8');
+  const { document: d } = parseHTML(html);
+  assert.ok(
+    [...d.querySelectorAll('*')].some(isLiveRegion),
+    'expected options.html to contain live regions — if this fires, the scan target moved'
+  );
+  assert.deepEqual(doubleReadViolations(d, { announcerIds: [] }), []);
+});
+
 // --------------------------------------------------------------------------
 
 const run = async () => {
