@@ -210,6 +210,55 @@ function creditsAccount(env: Env, tokenHash: string): DurableObjectStub<CreditsA
   return env.CREDITS.getByName(tokenHash);
 }
 
+// Reserved DO name for the binding liveness check. Real accounts are keyed by a sha256
+// hex digest so this can never collide with one, and it is never funded — grant/topup are
+// admin-only and neither ever names it. Its balance is permanently 0, so even if the name
+// were reachable it could not buy a labeling call.
+const BINDING_PROBE_ACCOUNT = '__binding_probe__';
+
+/**
+ * GET /health?deep=1 — prove the declared BINDINGS actually resolved at runtime.
+ *
+ * Plain /health returns a static object and touches nothing, so it stays green when a
+ * binding is missing — the exact shape of check that would sail through the outage this
+ * endpoint exists to catch. This one reads through both bindings and reports each.
+ *
+ * Unauthenticated on purpose. Every other path touching TOKENS or CREDITS sits behind a
+ * token or the admin secret, so proving the bindings would otherwise mean minting a
+ * credential, storing it in CI and rotating it — a standing secret whose only job is to be
+ * observed. This needs none: the KV read is a deliberate miss and the DO account is a
+ * reserved, never-funded sentinel. It discloses only whether each binding resolved.
+ *
+ * Returns 503 naming the unavailable binding, which finally makes "assert a binding-backed
+ * endpoint is not 503" — the check the original lesson asked for, and which was true on
+ * neither app — correct here, because this is the endpoint built to make it so.
+ */
+async function handleDeepHealth(env: Env): Promise<Response> {
+  const bindings: Record<string, string> = {};
+
+  try {
+    // A miss is the expected result; what matters is that the read reached KV at all.
+    await env.TOKENS.get('binding-probe:intentionally-absent');
+    bindings.TOKENS = 'ok';
+  } catch {
+    bindings.TOKENS = 'unavailable';
+  }
+
+  try {
+    await creditsAccount(env, BINDING_PROBE_ACCOUNT).balance();
+    bindings.CREDITS = 'ok';
+  } catch {
+    bindings.CREDITS = 'unavailable';
+  }
+
+  const ok = Object.values(bindings).every((v) => v === 'ok');
+  if (!ok) console.log(JSON.stringify({ event: 'binding_unavailable', bindings }));
+  return json(
+    { service: 'page-repair-proxy', status: ok ? 'ok' : 'degraded', bindings },
+    ok ? 200 : 503
+  );
+}
+
 function buildPrompt(issues: LabelIssue[], pageTitle: string, pageUrl: string): string {
   return [
     'You are labeling unnamed interactive controls on a web page so a screen reader user can understand them.',
@@ -411,6 +460,10 @@ export default {
       // Friendly health/info root so uptime checks and curious visitors get a
       // 200 instead of a bare 404. Reveals nothing sensitive.
       if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/health')) {
+        // ?deep=1 additionally reads through TOKENS and CREDITS. The plain form stays
+        // static and binding-free so it remains a clean "is the Worker up?" signal —
+        // the two answer different questions and must not be collapsed.
+        if (url.searchParams.get('deep') === '1') return await handleDeepHealth(env);
         return json({ service: 'page-repair-proxy', status: 'ok' });
       }
       if (request.method === 'POST' && url.pathname === '/v1/label') {

@@ -30,7 +30,16 @@
       "expectStatus": 200,
       "expectBodyContains": ["page-repair-proxy", "\"status\":\"ok\""],
       "proves": [],
-      "whenMissing": "a non-200 here means the Worker itself is down or unrouted; every probe below would also fail, for a reason that has nothing to do with the config."
+      "whenMissing": "a non-200 here means the Worker itself is down or unrouted; every probe below would also fail, for a reason that has nothing to do with the config. Verified 2026-07-30 against a runtime with the KV binding removed: this route still answered 200 {\"status\":\"ok\"}. That is the whole point of keeping it separate from the deep check below."
+    },
+    {
+      "name": "TOKENS and CREDITS both resolved — deep binding liveness, no credential needed",
+      "path": "/health?deep=1",
+      "method": "GET",
+      "expectStatus": 200,
+      "expectBodyContains": ["\"TOKENS\":\"ok\"", "\"CREDITS\":\"ok\""],
+      "proves": ["TOKENS", "CREDITS"],
+      "whenMissing": "503 {\"status\":\"degraded\"} naming the unavailable binding. This is the only probe that reaches the Durable Object, because every other CREDITS path sits behind a real token. It uses a reserved, never-funded sentinel account (__binding_probe__) and a deliberate KV miss, so it holds no credential and can spend nothing. If this 404s, the deep endpoint is not deployed yet — run `npm run deploy`."
     },
     {
       "name": "TOKENS (KV) resolved — an unknown-but-well-formed token forces a real KV read and misses",
@@ -62,17 +71,19 @@
     }
   ],
   "_unproven": [
-    "CREDITS (the Durable Object) is declared in wrangler.jsonc and NO probe below exercises",
-    "it — the runner will say so on every run, which is correct and deliberate rather than an",
-    "oversight. handleBalance() only reaches creditsAccount() AFTER a VALID token record is",
-    "found, so proving the DO binding requires a real token, and a real token does not belong",
-    "in a committed file. This is the same shape as the original D1 incident: a binding that",
-    "is right in the config and unexercised in production until a user finds it.",
+    "CREDITS is now proven, by GET /health?deep=1 — WITHOUT a credential.",
     "",
-    "TO CLOSE IT: mint a dedicated zero-credit probe token (POST /admin/tokens?credits=0",
-    "&note=ci-probe), store it as the repo secret PROBE_TOKEN, and add a probe sending it to",
-    "GET /v1/balance expecting 200 with a numeric \"credits\". Zero credits means it can never",
-    "buy a labeling call even if the token leaks. That needs a mutating admin call and a repo",
-    "settings change, so it is left as an explicit decision rather than done silently."
+    "The earlier plan here was to mint a zero-credit probe token, store it as a repo secret,",
+    "and send it to /v1/balance. That works, but it creates a standing credential whose only",
+    "job is to be observed: something to store, scope, rotate, and leak. The cheaper answer was",
+    "to make the binding observable instead of making the observer privileged — a deep health",
+    "route that does a deliberate KV miss and reads the balance of a reserved, never-funded",
+    "sentinel account. It holds nothing, can spend nothing, and needs no secret in CI.",
+    "",
+    "STILL UNPROVEN, and the runner will keep saying so: MODEL and DEFAULT_STARTING_CREDITS.",
+    "MODEL is only observable by paying for a labeling call; DEFAULT_STARTING_CREDITS only by",
+    "minting a token. Neither is worth a probe that costs money or mutates state, and both are",
+    "low-consequence if stale — a wrong MODEL degrades label quality, it does not break the",
+    "service. Recorded as a deliberate accepted gap rather than an oversight."
   ]
 }
