@@ -4,9 +4,10 @@
   "version": "0.1.0",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "wrangler deploy && npm run check:live-config",
     "types": "wrangler types",
-    "check": "wrangler types && tsc --noEmit"
+    "check": "wrangler types && tsc --noEmit",
+    "check:live-config": "node probe-live-config.mjs live-config-probe.json"
   },
   "devDependencies": {
     "typescript": "^5.6.0",

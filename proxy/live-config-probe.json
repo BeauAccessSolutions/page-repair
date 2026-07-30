@@ -1,0 +1,78 @@
+{
+  "_comment": [
+    "Post-deploy proof that proxy/wrangler.jsonc is ACTUALLY IN EFFECT in production.",
+    "Runner: proxy/probe-live-config.mjs (vendored; canonical lives in",
+    "~/.claude/skills/wrangler/probe_live_config.mjs). Run: npm run check:live-config",
+    "",
+    "SAFETY — this Worker fronts a paid API and an atomic credit ledger, so every probe",
+    "below is read-only, unauthenticated, and cannot spend a credit or mutate a balance:",
+    "  * /v1/label is NEVER probed — it calls Claude and costs ~$0.01 per request.",
+    "  * /admin/* is probed ONLY without credentials, where requireAdmin() returns 401",
+    "    before touching KV or the Durable Object.",
+    "  * the bearer token below is deliberately not a real token. It is well-formed so it",
+    "    gets past the header check and forces a KV read, and unknown so the lookup misses.",
+    "",
+    "WHY /health IS NOT ENOUGH, and is included anyway: the router answers GET /health",
+    "with a static object and touches no binding at all. It is the exact shape of check",
+    "that would stay green through the outage this probe exists to catch. It earns its",
+    "place only as a discriminator — if /health is also down, the Worker is not deployed,",
+    "which is a different problem from a binding that did not resolve."
+  ],
+  "config": "wrangler.jsonc",
+  "kind": "worker",
+  "origin": "https://page-repair-proxy.airboat-webcast-5u.workers.dev",
+  "originIsCanonical": "no custom domain is configured — the extension's manifest.json host permission names this exact workers.dev host, so it is production",
+  "probes": [
+    {
+      "name": "the Worker is deployed at all (static route, touches no binding — a discriminator, not a config check)",
+      "path": "/health",
+      "method": "GET",
+      "expectStatus": 200,
+      "expectBodyContains": ["page-repair-proxy", "\"status\":\"ok\""],
+      "proves": [],
+      "whenMissing": "a non-200 here means the Worker itself is down or unrouted; every probe below would also fail, for a reason that has nothing to do with the config."
+    },
+    {
+      "name": "TOKENS (KV) resolved — an unknown-but-well-formed token forces a real KV read and misses",
+      "path": "/v1/balance",
+      "method": "GET",
+      "headers": { "authorization": "Bearer prt_0000000000000000000000000000probe" },
+      "expectStatus": 403,
+      "expectBodyContains": ["Invalid or disabled token"],
+      "proves": ["TOKENS"],
+      "whenMissing": "403 is only reachable AFTER env.TOKENS.get() returns null. If the KV binding did not resolve, the property access throws and the router's catch returns 500 {\"error\":\"Internal error\"} — note 500, NOT 503, so a probe written to look only for 503 would miss this entirely. A 401 instead would mean the Authorization header never parsed, i.e. a different bug."
+    },
+    {
+      "name": "admin surface stays fail-closed without credentials",
+      "path": "/admin/tokens",
+      "method": "POST",
+      "expectStatus": 401,
+      "expectBodyContains": ["Unauthorized"],
+      "proves": [],
+      "whenMissing": "anything other than 401 on an unauthenticated admin call is an auth regression, not a config problem — a 200 would mean anyone can mint tokens against a paid API key. requireAdmin() runs before any binding is touched, so this probe cannot mutate state. It deliberately does NOT claim to prove ADMIN_SECRET is set: a missing secret also yields 401, so the two are indistinguishable from outside."
+    },
+    {
+      "name": "unrouted paths 404 as JSON from the Worker, not from Cloudflare's edge",
+      "path": "/definitely-not-a-route",
+      "method": "GET",
+      "expectStatus": 404,
+      "expectBodyContains": ["\"error\":\"Not found\""],
+      "proves": [],
+      "whenMissing": "an edge-shaped HTML 404 here means requests are not reaching this Worker's fetch handler at all — routing, not config."
+    }
+  ],
+  "_unproven": [
+    "CREDITS (the Durable Object) is declared in wrangler.jsonc and NO probe below exercises",
+    "it — the runner will say so on every run, which is correct and deliberate rather than an",
+    "oversight. handleBalance() only reaches creditsAccount() AFTER a VALID token record is",
+    "found, so proving the DO binding requires a real token, and a real token does not belong",
+    "in a committed file. This is the same shape as the original D1 incident: a binding that",
+    "is right in the config and unexercised in production until a user finds it.",
+    "",
+    "TO CLOSE IT: mint a dedicated zero-credit probe token (POST /admin/tokens?credits=0",
+    "&note=ci-probe), store it as the repo secret PROBE_TOKEN, and add a probe sending it to",
+    "GET /v1/balance expecting 200 with a numeric \"credits\". Zero credits means it can never",
+    "buy a labeling call even if the token leaks. That needs a mutating admin call and a repo",
+    "settings change, so it is left as an explicit decision rather than done silently."
+  ]
+}
