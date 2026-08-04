@@ -92,10 +92,12 @@ network calls above send data to an API and receive JSON (labels); they do not
 fetch or run remote code.
 
 ## Privacy policy URL
-Host PRIVACY.md at a public URL and paste it here. Options:
-- GitHub Pages / the repo's rendered Markdown:
-  https://github.com/Beaudoin0zach/page-repair/blob/main/PRIVACY.md
-- (Recommended) a dedicated page you control.
+https://github.com/BeauAccessSolutions/page-repair/blob/main/PRIVACY.md
+
+This points at the rendered `PRIVACY.md` in the public canonical repo, which
+satisfies the Chrome Web Store's public-URL requirement. Upgrade path: replace
+with a dedicated page you control (e.g. on beauaccesssolutions.com) before or
+shortly after launch — the store listing can be updated in place.
 
 ---
 
