@@ -9,7 +9,7 @@ dashboard sections.
 Page Repair
 
 ## Summary (max 132 chars — used as the manifest description too)
-Fixes broken pages for screen reader users: labels unlabeled controls, repairs headings and landmarks. Always user-invoked.
+Screen reader stuck on "button, button, button"? Page Repair names controls and fixes headings — only when you ask.
 
 ## Category
 Accessibility
@@ -56,8 +56,13 @@ What makes it different from an accessibility "overlay":
   extension never contacts anyone on your behalf.
 
 Labeling requires either your own Anthropic API key or a prepaid credit
-token — you choose in the options page. See the privacy policy for exactly what
-data is sent and when.
+token — you choose in the options page, and the privacy policy spells out
+exactly what data is sent and when.
+
+The sites themselves should have named those buttons and ordered those
+headings. Until they do, this is the version that runs on your command, on the
+page you pick, and tells you plainly what it wasn't sure of. It answers to you,
+not to the site.
 
 ## Single purpose (dashboard requires this)
 Page Repair has one purpose: when the user invokes it, repair the accessibility
