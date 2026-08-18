@@ -3,7 +3,7 @@
   "name": "Page Repair",
   "version": "1.0.0",
   "description": "Screen reader stuck on \"button, button, button\"? Page Repair names controls and fixes headings — only when you ask.",
-  "homepage_url": "https://github.com/Beaudoin0zach/page-repair",
+  "homepage_url": "https://github.com/BeauAccessSolutions/page-repair",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
