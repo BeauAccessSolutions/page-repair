@@ -1,5 +1,10 @@
 # Page Repair (prototype)
 
+You tab into a checkout form and your screen reader says "button, button,
+button." Someone shipped that page without naming its controls, and you are
+the one who can't finish the purchase. Page Repair names them — on your
+command, on the page you chose, and it tells you which labels it wasn't sure of.
+
 A user-invoked browser extension that repairs broken web pages for screen
 reader users — fixing unlabeled controls, broken heading structure, and
 missing landmarks with targeted ARIA patches that keep the page fully alive.
@@ -11,14 +16,18 @@ and says so honestly.
 
 ## Research grounding
 
-Built from a deep-research pass (WebAIM Screen Reader Surveys #7/#10, the
-Overlay Fact Sheet, NFB position statements, ASSETS 2024/2025 papers) and a
-close read of "From Cluttered to Clear" (ASSETS 2025, arXiv:2502.18701) —
-the closest prior art. Key evidence:
+Built from a deep-research pass (WebAIM Screen Reader Surveys
+[#7](https://webaim.org/projects/screenreadersurvey7/) /
+[#10](https://webaim.org/projects/screenreadersurvey10/), the
+[Overlay Fact Sheet](https://overlayfactsheet.com/), NFB position statements,
+ASSETS 2024/2025 papers) and a close read of "From Cluttered to Clear"
+(ASSETS 2025, [arXiv:2502.18701](https://arxiv.org/abs/2502.18701)) — the
+closest prior art. Key evidence:
 
-- 85.9% of screen reader users say better *websites* would help more than
-  better assistive tech (WebAIM #10). The top problems are content-authoring
-  failures: unlabeled buttons, bad headings, chaotic dynamic content.
+- [85.9% of screen reader users say better *websites* would help more than
+  better assistive tech](https://webaim.org/projects/screenreadersurvey10/)
+  (WebAIM #10). The top problems are content-authoring failures: unlabeled
+  buttons, bad headings, chaotic dynamic content.
 - The ASSETS 2025 study proved LLM page restructuring significantly improves
   task times and experience (n=15) — but did it by regenerating the entire
   page as text-only HTML: scripts stripped, visuals destroyed, 220K tokens,

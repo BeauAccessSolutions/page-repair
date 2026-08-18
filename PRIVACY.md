@@ -6,7 +6,7 @@ Page Repair is a browser extension that repairs the page you are currently
 viewing for screen reader users. This policy explains exactly what it does and
 does not do with your data. It is written to match how the extension actually
 behaves — see the source at
-https://github.com/Beaudoin0zach/page-repair.
+https://github.com/BeauAccessSolutions/page-repair.
 
 ## The short version
 
@@ -97,4 +97,4 @@ For the store's data-use form, the extension:
 ## Contact
 
 Questions or requests: open an issue at
-https://github.com/Beaudoin0zach/page-repair/issues.
+https://github.com/BeauAccessSolutions/page-repair/issues.

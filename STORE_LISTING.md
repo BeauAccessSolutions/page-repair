@@ -9,7 +9,7 @@ dashboard sections.
 Page Repair
 
 ## Summary (max 132 chars — used as the manifest description too)
-Fixes broken pages for screen reader users: labels unlabeled controls, repairs headings and landmarks. Always user-invoked.
+Screen reader stuck on "button, button, button"? Page Repair names controls and fixes headings — only when you ask.
 
 ## Category
 Accessibility
@@ -56,8 +56,13 @@ What makes it different from an accessibility "overlay":
   extension never contacts anyone on your behalf.
 
 Labeling requires either your own Anthropic API key or a prepaid credit
-token — you choose in the options page. See the privacy policy for exactly what
-data is sent and when.
+token — you choose in the options page, and the privacy policy spells out
+exactly what data is sent and when.
+
+The sites themselves should have named those buttons and ordered those
+headings. Until they do, this is the version that runs on your command, on the
+page you pick, and tells you plainly what it wasn't sure of. It answers to you,
+not to the site.
 
 ## Single purpose (dashboard requires this)
 Page Repair has one purpose: when the user invokes it, repair the accessibility
@@ -92,10 +97,12 @@ network calls above send data to an API and receive JSON (labels); they do not
 fetch or run remote code.
 
 ## Privacy policy URL
-Host PRIVACY.md at a public URL and paste it here. Options:
-- GitHub Pages / the repo's rendered Markdown:
-  https://github.com/Beaudoin0zach/page-repair/blob/main/PRIVACY.md
-- (Recommended) a dedicated page you control.
+https://github.com/BeauAccessSolutions/page-repair/blob/main/PRIVACY.md
+
+This points at the rendered `PRIVACY.md` in the public canonical repo, which
+satisfies the Chrome Web Store's public-URL requirement. Upgrade path: replace
+with a dedicated page you control (e.g. on beauaccesssolutions.com) before or
+shortly after launch — the store listing can be updated in place.
 
 ---
 
