@@ -1,7 +1,18 @@
 # Moving the credit proxy to the Beau Access Solutions Cloudflare account
 
-**Status: not done. Do this before the extension is submitted to the Chrome Web
-Store, and before `ANTHROPIC_API_KEY` is ever set.**
+**Status: DONE 2026-08-21** — the Worker now runs on the Beau Access Solutions
+account (`39d7ced…`) at `page-repair-proxy.beauaccesssolutions.com`, with
+`account_id` pinned in `wrangler.jsonc` and a fresh account-scoped `TOKENS`
+namespace. Kept for the reasoning, and for the two steps still outstanding:
+
+1. **Secrets** — they do not travel with the code. `ADMIN_SECRET` (and
+   `ANTHROPIC_API_KEY` when going live) must be set on the new account.
+2. **The old KV was never inspected.** The pre-flight below has to run while
+   authenticated to the OLD account. Expected empty — the proxy never had an API
+   key, so no tokens should have been minted — but this is unverified, not proven.
+
+The old Worker is still deployed on the langworthywatch account; delete it only
+once the new one is proven (last section).
 
 ## Why
 
