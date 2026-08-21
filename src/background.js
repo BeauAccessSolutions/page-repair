@@ -10,7 +10,7 @@
 
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const DEFAULT_MODEL = 'claude-opus-4-8';
-const PROXY_URL = 'https://page-repair-proxy.airboat-webcast-5u.workers.dev';
+const PROXY_URL = 'https://page-repair-proxy.beauaccesssolutions.com';
 const FETCH_TIMEOUT_MS = 60_000;
 
 chrome.action.onClicked.addListener((tab) => sendCommand(tab, 'repair-page'));
