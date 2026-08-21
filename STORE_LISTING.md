@@ -86,7 +86,7 @@ heading structure, and adding missing landmarks.
   and silence would be indistinguishable from the extension being broken.
 - **Host permission `https://api.anthropic.com/*`** — In bring-your-own-key
   mode, the extension calls the Anthropic API directly to label controls.
-- **Host permission `https://page-repair-proxy.airboat-webcast-5u.workers.dev/*`**
+- **Host permission `https://page-repair-proxy.beauaccesssolutions.com/*`**
   — In prepaid-credits mode, the extension calls the Page Repair proxy (this
   exact origin only), which meters credits and forwards the request to
   Anthropic.

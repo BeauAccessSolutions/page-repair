@@ -1,9 +1,27 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "page-repair-proxy",
+
+  // Pinned deliberately. This Worker spent its life on the LANGWORTHYWATCH
+  // Cloudflare account because nothing here said which account it belonged to —
+  // wrangler just used whichever was cached, and the workers.dev subdomain it
+  // handed back (airboat-webcast-5u) got baked into the extension's reviewed
+  // host permission. With account_id set, a deploy from the wrong login fails
+  // loudly instead of quietly creating a second copy somewhere else.
+  // 39d7ced… = Beaudoin0zach@aol.com (Beau Access Solutions).
+  "account_id": "39d7ced651572ee48cca6a29e1feebe9",
   "main": "src/index.ts",
   "compatibility_date": "2026-07-02",
   "compatibility_flags": ["nodejs_compat"],
+  // A custom domain on a zone we own, NOT the account's workers.dev subdomain.
+  // The subdomain is derived from the ACCOUNT, so pointing the extension at one
+  // means an account change silently breaks installs — and because the URL is an
+  // MV3 host permission, fixing it costs a Chrome Web Store re-review. This
+  // hostname survives any future account move.
+  "routes": [
+    { "pattern": "page-repair-proxy.beauaccesssolutions.com", "custom_domain": true }
+  ],
+
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
@@ -11,7 +29,7 @@
   "kv_namespaces": [
     {
       "binding": "TOKENS",
-      "id": "e0a7eec658d646a194dee95a393d8f78"
+      "id": "ff79b0cc55da4e8fb5a4bb67154982a3"
     }
   ],
   // Per-token credit balances live in a Durable Object so the spend is atomic

@@ -12,7 +12,7 @@
   "permissions": ["storage", "activeTab", "scripting", "notifications"],
   "host_permissions": [
     "https://api.anthropic.com/*",
-    "https://page-repair-proxy.airboat-webcast-5u.workers.dev/*"
+    "https://page-repair-proxy.beauaccesssolutions.com/*"
   ],
   "background": {
     "service_worker": "src/background.js"

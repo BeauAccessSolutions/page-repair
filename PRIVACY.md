@@ -59,7 +59,7 @@ history, or anything from other tabs.
 
 2. **Prepaid credits (credit token).** If you use a credit token instead,
    the request goes to our proxy
-   (`page-repair-proxy.airboat-webcast-5u.workers.dev`), which forwards it
+   (`page-repair-proxy.beauaccesssolutions.com`), which forwards it
    to Anthropic using a server-held key and deducts one credit. The proxy:
    - stores only a **SHA-256 hash** of your token plus a remaining-credit
      count — never the token itself and never page content;
